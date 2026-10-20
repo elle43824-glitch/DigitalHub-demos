@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DigitalHub — Demo dal vivo</title>
+  <meta name="description" content="Le demo dei tutorial DigitalHub: cannone di slime e prima pagina HTML. Prova gli effetti direttamente nel browser.">
+  <style>
+    :root {
+      --bg: #0b0a12;
+      --panel: #15141f;
+      --line: #2a2740;
+      --text: #e8ecf7;
+      --muted: #98a2b3;
+      --green: #8dff57;
+      --orange: #ff9149;
+      --cyan: #6ed7ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+      font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center; padding: 32px 20px;
+      background-image:
+        radial-gradient(900px 400px at 15% 110%, rgba(141,255,87,.10), transparent 70%),
+        radial-gradient(700px 380px at 95% -10%, rgba(80,130,255,.10), transparent 70%),
+        linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+      background-size: auto, auto, 64px 64px, 64px 64px;
+    }
+    .wrap { width: 100%; max-width: 1080px; }
+    header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+    .badge {
+      width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+      background: #14131e; border: 1px solid rgba(255,255,255,.14);
+      font-weight: 800; letter-spacing: .5px; font-size: 15px;
+    }
+    .brand { font-weight: 800; letter-spacing: .28em; font-size: 14px; color: #dfe6f5; }
+    .channel { margin-left: auto; font-size: 13px; color: var(--muted); text-decoration: none; }
+    .channel:hover { color: var(--green); }
+    h1 { font-size: clamp(28px, 4.2vw, 44px); line-height: 1.05; margin: 22px 0 8px; }
+    h1 span { color: var(--green); }
+    .lead { color: var(--muted); max-width: 640px; line-height: 1.55; margin: 0 0 30px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 18px; }
+    .card {
+      background: linear-gradient(180deg, #16151f, #12111a);
+      border: 1px solid var(--line); border-radius: 18px; padding: 22px;
+      display: flex; flex-direction: column; gap: 12px; transition: transform .18s, border-color .18s;
+    }
+    .card:hover { transform: translateY(-3px); border-color: #3c3760; }
+    .tag { font-size: 11px; font-weight: 800; letter-spacing: .18em; }
+    .tag.green { color: var(--green); }
+    .tag.orange { color: var(--orange); }
+    .tag.cyan { color: var(--cyan); }
+    .card h2 { margin: 0; font-size: 21px; }
+    .card p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.55; flex: 1; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 13px 18px; border-radius: 12px; text-decoration: none; font-weight: 800;
+      font-size: 15px; border: 1px solid transparent; transition: filter .18s, transform .12s;
+    }
+    .btn:active { transform: scale(.985); }
+    .btn-green { background: var(--green); color: #0a1a06; }
+    .btn-orange { background: var(--orange); color: #241005; }
+    .btn-ghost { border-color: var(--line); color: var(--text); }
+    .btn:hover { filter: brightness(1.06); }
+    .hint { font-size: 12.5px; color: #7c869c; margin-top: 4px; line-height: 1.5; }
+    footer {
+      margin-top: 34px; padding-top: 18px; border-top: 1px solid var(--line);
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+      font-size: 13px; color: #7c869c;
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--green); }
+    .sep { opacity: .35; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="badge">DH</div>
+      <div class="brand">DIGITALHUB</div>
+      <a class="channel" href="https://www.youtube.com/@DigitalHub" target="_blank" rel="noopener">Canale YouTube ↗</a>
+    </header>
+
+    <h1>Prova le demo <span>dal vivo</span></h1>
+    <p class="lead">
+      Tutto ciò che vedi nei video è codice vero, in esecuzione nel tuo browser.
+      Nessun programma da installare, nessun dato raccolto: apri e prova.
+    </p>
+
+    <div class="grid">
+      <article class="card">
+        <div class="tag green">TUTORIAL VFX · HTML + JAVASCRIPT</div>
+        <h2>Cannone di Slime</h2>
+        <p>
+          Mira col mouse e clicca per sparare la raffica. Ogni quattro colpi parte
+          una palla gigante: rimbalzi, macchie a terra e scossa di schermo.
+        </p>
+        <a class="btn btn-green" href="./slime-cannon.html">▶ Apri il cannone</a>
+        <div class="hint">Mouse per mirare · clic per sparare · <strong>Spazio</strong> colpo singolo · <strong>R</strong> pulisci</div>
+      </article>
+
+      <article class="card">
+        <div class="tag orange">CORSO HTML · PARTE 1</div>
+        <h2>La prima pagina</h2>
+        <p>
+          L'esempio costruito nella lezione: titolo, paragrafi, lista, immagine
+          e link. Il sorgente è commentato e leggibile: usalo come punto di partenza.
+        </p>
+        <a class="btn btn-orange" href="./prima-pagina.html">Apri la pagina</a>
+        <div class="hint">Tasto destro → “Visualizza sorgente pagina” per leggere il codice</div>
+      </article>
+
+      <article class="card">
+        <div class="tag cyan">RISORSE</div>
+        <h2>Codice e video</h2>
+        <p>
+          Il codice del cannone è dentro il file HTML: puoi scaricarlo, modificarlo
+          e usarlo nei tuoi progetti. I video spiegano ogni riga, passo dopo passo.
+        </p>
+        <a class="btn btn-ghost" href="./slime-cannon.html" download="slime-cannon.html">Scarica l'HTML del cannone</a>
+        <div class="hint">Licenza libera per uso personale e didattico</div>
+      </article>
+    </div>
+
+    <footer>
+      <span>© DigitalHub · demo didattiche</span>
+      <span class="sep">·</span>
+      <span>HTML + JavaScript · nessuna libreria · nessun tracciamento</span>
+      <span class="sep">·</span>
+      <a href="https://www.youtube.com/@DigitalHub" target="_blank" rel="noopener">Iscriviti al canale</a>
+    </footer>
+  </div>
+</body>
+</html>
