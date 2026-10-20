@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cannone di Slime — demo DigitalHub</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a16; }
+    canvas     { display: block; width: 100vw; height: 100vh; touch-action: none; }
+    #hud {
+      position: fixed; left: 24px; top: 18px; pointer-events: none; user-select: none;
+      font-family: ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace;
+      color: #bfe3ad; font-size: 12px; letter-spacing: .16em; opacity: .9;
+    }
+    #hud b { display: block; font-size: 17px; letter-spacing: .26em; color: #8dff57; }
+    #hud span { color: #6f7f92; letter-spacing: .10em; }
+    #bar {
+      position: fixed; right: 22px; top: 20px; z-index: 10;
+      display: flex; align-items: center; gap: 12px;
+      font-family: ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace;
+      font-size: 12px; letter-spacing: .12em; user-select: none;
+    }
+    #bar a {
+      color: #9fb4a4; text-decoration: none; padding: 9px 14px; border-radius: 10px;
+      border: 1px solid rgba(141,255,87,.28); background: rgba(12,16,12,.62);
+      backdrop-filter: blur(6px); transition: color .18s, border-color .18s, background .18s;
+      white-space: nowrap;
+    }
+    #bar a:hover { color: #dcffe3; border-color: rgba(141,255,87,.75); background: rgba(20,30,20,.8); }
+    #bar a.yt { border-color: rgba(255,90,90,.35); color: #e6b3b3; }
+    #bar a.yt:hover { color: #ffdcdc; border-color: rgba(255,90,90,.8); }
+    @media (max-width: 720px) {
+      #bar { right: 12px; top: 12px; gap: 8px; font-size: 11px; }
+      #bar a { padding: 7px 10px; }
+      #hud span.credit { display: none; }
+    }
+
+  </style>
+</head>
+<body>
+  <canvas id="tela"></canvas>
+  <div id="bar">
+    <a class="yt" href="https://www.youtube.com/channel/UCkTXX_ZO05a-GV9CJS8P3Lg"
+       target="_blank" rel="noopener">▶ DIGITALHUB</a>
+    <a href="./slime-cannon.html" download="cannone-di-slime.html">⤓ SCARICA IL CODICE</a>
+    <a href="./index.html">← DEMO</a>
+  </div>
+  <div id="hud">
+    <b>CANNONE DI SLIME</b>
+    CLICCA E TRASCINA PER SPARARE &nbsp;·&nbsp; MUOVI IL MOUSE PER MIRARE &nbsp;·&nbsp; R PER PULIRE
+  </div>
+
+<script>
+/* ============================================================
+   CANNONE DI SLIME — effetto VFX in puro HTML + JavaScript
+   Fasi: 1 tela · 2 emissione+fisica · 3 look · 4 impatto
+   Apri questo file nel browser: clicca per sparare la raffica.
+   ============================================================ */
+
+// ---------- 1. SETUP: tela, dimensioni, suolo ----------
+const tela = document.querySelector("#tela");
+const ctx  = tela.getContext("2d");
+
+let W = 0, H = 0, suolo = 0, scala = 1;
+
+function adatta() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  tela.width  = Math.round(W * dpr);
+  tela.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  suolo  = H - Math.min(110, H * 0.14);
+  scala  = Math.max(0.75, Math.min(1.25, H / 900));   // adatta il cannone allo schermo
+  cannone.x = Math.min(130, W * 0.15);
+  cannone.y = suolo - 58 * scala;
+}
+window.addEventListener("resize", adatta);
+
+// ---------- 2. STATO DEL MONDO ----------
+const particelle = [];   // palline e goccioline
+const macchie    = [];   // macchie a terra
+let mira     = -0.62;
+let rinculo  = 0;
+let scossa   = 0;
+let flash    = 0;
+let zoomKick = 0;
+let t        = 0;
+let colpi    = 0;
+
+const cannone = { x: 110, y: 300, lunghezza: 96 };
+const bocca   = { x: 0, y: 0 };
+
+const CASUALE = (min, max) => min + Math.random() * (max - min);
+
+// palette: tre verdi diversi + la variante chiara dei colpi caricati
+const PALETTE = {
+  A: ["#f4ffe0", "#8dff57", "#35c24e", "#12722f"],
+  B: ["#ffffcd", "#cdff5a", "#8cd72d", "#467d14"],
+  C: ["#e6fff5", "#78ffaf", "#28c878", "#0e643e"],
+  D: ["#ffffff", "#deffb4", "#78f06e", "#288c32"],
+};
+const SCIA = { A: "#63d63f", B: "#b0e63c", C: "#46d296", D: "#aaffa0" };
+
+// ---------- 3. EMETTITORE ----------
+function spara() {
+  const dx = Math.cos(mira), dy = Math.sin(mira);
+  bocca.x = cannone.x + dx * cannone.lunghezza * scala;
+  bocca.y = cannone.y + dy * cannone.lunghezza * scala;
+
+  colpi++;
+  const power = (colpi % 4 === 0);          // ogni 4 colpi: palla gigante
+
+  for (let i = 0; i < 16; i++) {
+    const angolo = mira + CASUALE(-0.21, 0.21);
+    const forza  = CASUALE(950, 1650);
+    const pal = ["A", "A", "A", "B", "B", "C"][Math.floor(Math.random() * 6)];
+    particelle.push(new Particella(bocca.x, bocca.y,
+      Math.cos(angolo) * forza, Math.sin(angolo) * forza, pal));
+  }
+  if (power) {
+    particelle.push(new Particella(bocca.x, bocca.y,
+      Math.cos(mira) * 1550, Math.sin(mira) * 1550, "D", false, true));
+  }
+
+  rinculo  = power ? 1.35 : 1;
+  flash    = power ? 1.4 : 1;
+  scossa   = Math.min(13, scossa + (power ? 4.5 : 2.0));
+  zoomKick = Math.min(1, zoomKick + (power ? 0.9 : 0.25));
+}
+
+// ---------- 4. PARTICELLA: fisica ----------
+class Particella {
+  constructor(x, y, vx, vy, pal = "A", goccia = false, big = false) {
+    this.x = x;  this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.r = big ? CASUALE(19, 23) : CASUALE(5, 12);
+    this.fase = Math.random() * 6.28;
+    this.pal = pal;
+    this.goccia = goccia;
+    this.big = big;
+    this.vita = 1;
+    this.morta = false;
+    this.riposo = 0;
+    this.eta = 0;
+    this.scia = [];
+  }
+
+  update(dt) {
+    this.eta += dt;
+    this.vy += 1500 * dt;                 // gravità
+    this.x  += this.vx * dt;
+    this.y  += this.vy * dt;
+    this.vx *= 0.999;
+
+    this.scia.push({ x: this.x, y: this.y });
+    if (this.scia.length > 4) this.scia.shift();
+
+    if (this.x < this.r)              { this.x = this.r;          this.vx =  Math.abs(this.vx) * 0.7; }
+    if (this.x > W - this.r)          { this.x = W - this.r;      this.vx = -Math.abs(this.vx) * 0.7; }
+    if (this.y < this.r)              { this.y = this.r;          this.vy =  Math.abs(this.vy) * 0.6; }
+
+    if (this.y > suolo - this.r) {
+      const v = Math.abs(this.vy);
+      if (this.goccia) {
+        if (v > 60 && this.riposo < 0.5 && !this.big) {
+          this.y = suolo - this.r;
+          this.vy *= -0.42;
+          this.vx *= 0.8;
+          this.riposo += 0.2;
+        } else { this.morta = true; }
+      } else if (v > 420 || this.big) {
+        impatto(this);
+        this.morta = true;
+      } else {
+        this.y = suolo - this.r;
+        if (v < 110) { this.vy = 0; this.vx *= 0.90; this.riposo += dt; }
+        else         { this.vy *= -0.55; this.vx *= 0.86; this.riposo = 0; }
+      }
+    }
+    if (this.riposo > 1.6 || this.eta > 16) this.morta = true;
+  }
+}
+
+// ---------- 5. LOOK: lo slime ----------
+function disegnaPallina(p) {
+  if (!p.goccia) {
+    // scia a pallini fantasma
+    for (let i = 0; i < p.scia.length - 1; i++) {
+      const s = p.scia[i];
+      ctx.globalAlpha = 0.08 + 0.05 * i;
+      ctx.fillStyle = SCIA[p.pal];
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, p.r * (0.5 + 0.16 * i), 0, 6.283);
+      ctx.fill();
+    }
+    // striscia di velocità
+    const sp = Math.hypot(p.vx, p.vy);
+    if (sp > 900) {
+      const k = Math.min(0.028, 55 / sp);
+      ctx.globalAlpha = 0.28;
+      ctx.strokeStyle = SCIA[p.pal];
+      ctx.lineWidth = p.r * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(p.x - p.vx * k, p.y - p.vy * k);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    const w = 1 + Math.sin(t * 11 + p.fase) * 0.09;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.scale(w, 2 - w);                      // squash & stretch
+    ctx.shadowColor = "#7cff4f";
+    ctx.shadowBlur = p.big ? 34 : 20;
+
+    const g = ctx.createRadialGradient(
+      -p.r * 0.35, -p.r * 0.4, p.r * 0.08,
+       0,          0,          p.r);
+    const c = PALETTE[p.pal];
+    g.addColorStop(0.00, c[0]);
+    g.addColorStop(0.32, c[1]);
+    g.addColorStop(0.78, c[2]);
+    g.addColorStop(1.00, c[3]);
+    ctx.beginPath();
+    ctx.arc(0, 0, p.r, 0, 6.283);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.62;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.ellipse(-p.r * 0.34, -p.r * 0.42, p.r * 0.26, p.r * 0.16, -0.6, 0, 6.283);
+    ctx.fill();
+
+    // bollicine interne
+    if (p.r > 8) {
+      ctx.globalAlpha = 0.45;
+      for (let i = 0; i < 2; i++) {
+        const a = t * (1.8 + i) + p.fase + i * 2.1;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * p.r * 0.34, Math.sin(a * 0.9) * p.r * 0.30,
+                p.r * 0.09, 0, 6.283);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  } else {
+    // gocciolina allungata lungo la velocità
+    const sp = Math.hypot(p.vx, p.vy) + 0.001;
+    const k = Math.min(0.02, 40 / sp);
+    ctx.strokeStyle = "#bef6a9";
+    ctx.lineWidth = p.r * 1.6;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(p.x - p.vx * k, p.y - p.vy * k);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    ctx.fillStyle = "#cdffb0";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, 6.283);
+    ctx.fill();
+  }
+}
+
+// ---------- 6. IMPATTO ----------
+function impatto(p) {
+  const n = p.big ? 14 : 8;
+  for (let i = 0; i < n; i++) {
+    particelle.push(new Particella(
+      p.x, suolo - p.r * 0.4,
+      CASUALE(-460, 460), CASUALE(-620, -160),
+      p.pal, true));
+  }
+
+  const lobi  = [], raggi = [];
+  for (let i = 0; i < 7; i++) {
+    lobi.push({ a: Math.random() * 6.28, r: CASUALE(0.55, 1.3) });
+    raggi.push({ a: Math.random() * 6.28, r: CASUALE(0.8, 1.25) });
+  }
+  macchie.push({
+    x: p.x, y: suolo + 2,
+    raggio: p.r * CASUALE(2.0, 3.2) * (p.big ? 1.55 : 1),
+    semi: Math.random() * 6.28,
+    lobi, raggi, big: p.big, vita: 10
+  });
+  if (macchie.length > 90) macchie.shift();
+
+  scossa   = Math.min(16, scossa + (p.big ? 7.0 : 3.2));
+  zoomKick = Math.min(1, zoomKick + (p.big ? 1.0 : 0.15));
+}
+
+function disegnaMacchia(m) {
+  const fade = Math.min(1, m.vita / 2);
+  ctx.save();
+  ctx.translate(m.x, m.y);
+  ctx.scale(1, 0.36);
+  ctx.globalAlpha = 0.80 * fade;
+
+  // raggi sottili
+  ctx.strokeStyle = "#28a046";
+  ctx.lineWidth = Math.max(1.5, m.raggio * 0.05);
+  for (const g of m.raggi) {
+    const a = g.a + m.semi;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(a) * m.raggio * g.r * 1.35,
+               Math.sin(a) * m.raggio * g.r * 1.35);
+    ctx.stroke();
+  }
+
+  // corpo + lobi
+  ctx.fillStyle = "#229644";
+  ctx.beginPath();
+  ctx.arc(0, 0, m.raggio * 0.92, 0, 6.283);
+  ctx.fill();
+  ctx.fillStyle = "#1e8c3c";
+  for (const l of m.lobi) {
+    const a = l.a + m.semi;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * m.raggio * l.r, Math.sin(a) * m.raggio * l.r,
+            m.raggio * 0.52, 0, 6.283);
+    ctx.fill();
+  }
+
+  // bollicine
+  ctx.fillStyle = "rgba(180,255,170,0.38)";
+  for (let i = 0; i < 4; i++) {
+    const a = m.semi * 2 + i * 1.7;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * m.raggio * 0.42, Math.sin(a) * m.raggio * 0.14,
+            m.raggio * 0.07, 0, 6.283);
+    ctx.fill();
+  }
+
+  // riflesso umido
+  ctx.globalAlpha = 0.3 * fade;
+  ctx.fillStyle = "#bcff9a";
+  ctx.beginPath();
+  ctx.arc(-m.raggio * 0.25, -m.raggio * 0.3, m.raggio * 0.2, 0, 6.283);
+  ctx.fill();
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+// ---------- 7. SCENA: fondo e cannone ----------
+function disegnaFondo() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#0a0914");
+  g.addColorStop(1, "#101a10");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "rgba(120,255,160,0.045)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 46) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, suolo); ctx.stroke();
+  }
+  for (let y = 0; y < suolo; y += 46) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // tubi e serbatoi di sfondo
+  const s = scala;
+  ctx.fillStyle = "rgba(24,30,42,0.85)";
+  ctx.strokeStyle = "rgba(48,60,82,0.9)";
+  ctx.lineWidth = 2;
+  rounded(W * 0.72, suolo - 300 * s, 40 * s, 230 * s, 10 * s, true);
+  rounded(W * 0.83, suolo - 240 * s, 36 * s, 230 * s, 9 * s, true);
+  rounded(W * 0.70, suolo - 312 * s, 64 * s, 22 * s, 8 * s, true);
+  ctx.fillStyle = "rgba(36,46,64,0.9)";
+  for (const dy of [70, 128, 186]) {
+    ctx.fillRect(W * 0.72 - 3, suolo - 300 * s + dy * s, 46 * s, 7 * s);
+  }
+  ctx.strokeStyle = "rgba(40,52,70,0.9)";
+  ctx.lineWidth = 4 * s;
+  ctx.beginPath();
+  ctx.moveTo(W * 0.72 + 40 * s, suolo - 290 * s);
+  ctx.lineTo(W * 0.83, suolo - 290 * s);
+  ctx.lineTo(W * 0.83, suolo - 240 * s);
+  ctx.stroke();
+
+  // pavimento
+  const p = ctx.createLinearGradient(0, suolo - 80, 0, H);
+  p.addColorStop(0, "rgba(90,200,90,0)");
+  p.addColorStop(1, "rgba(70,180,70,0.12)");
+  ctx.fillStyle = p;
+  ctx.fillRect(0, suolo - 80, W, H - suolo + 80);
+
+  ctx.fillStyle = "rgba(141,255,87,0.35)";
+  ctx.fillRect(0, suolo, W, 1.5);
+  ctx.fillStyle = "rgba(5,8,6,0.72)";
+  ctx.fillRect(0, suolo + 1.5, W, H - suolo);
+}
+
+function rounded(x, y, w, h, r, fill) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+  else ctx.rect(x, y, w, h);
+  if (fill) ctx.fill();
+  ctx.stroke();
+}
+
+function disegnaCannone() {
+  const s = scala;
+  const px = cannone.x, py = cannone.y;
+  const dx = Math.cos(mira), dy = Math.sin(mira);
+  const nx = -dy, ny = dx;
+  const rec = rinculo * 14 * s;
+
+  // piastra a terra
+  ctx.fillStyle = "#222938";
+  ctx.strokeStyle = "rgba(56,68,96,1)";
+  ctx.lineWidth = 2;
+  rounded(px - 62 * s, suolo - 16 * s, 124 * s, 17 * s, 6 * s, true);
+  ctx.fillStyle = "#56647e";
+  for (const bx of [px - 50 * s, px + 50 * s]) {
+    ctx.beginPath(); ctx.arc(bx, suolo - 8 * s, 3 * s, 0, 6.283); ctx.fill();
+  }
+
+  // canna
+  const x0 = px + dx * rec, y0 = py + dy * rec;
+  const x1 = px + dx * (cannone.lunghezza * s) + dx * rec;
+  const y1 = py + dy * (cannone.lunghezza * s) + dy * rec;
+
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "#2c3654";
+  ctx.lineWidth = 24 * s;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.strokeStyle = "#384468";
+  ctx.lineWidth = 17 * s;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.strokeStyle = "rgba(118,140,186,0.6)";
+  ctx.lineWidth = 3 * s;
+  ctx.beginPath();
+  ctx.moveTo(x0 + nx * 6 * s, y0 + ny * 6 * s);
+  ctx.lineTo(x1 + nx * 6 * s, y1 + ny * 6 * s);
+  ctx.stroke();
+
+  // freno di bocca
+  const bx0 = x1 - dx * 7 * s, by0 = y1 - dy * 7 * s;
+  const bx2 = x1 + dx * 8 * s, by2 = y1 + dy * 8 * s;
+  ctx.strokeStyle = "#28314c";
+  ctx.lineWidth = 32 * s;
+  ctx.beginPath(); ctx.moveTo(bx0, by0); ctx.lineTo(bx2, by2); ctx.stroke();
+  ctx.strokeStyle = "rgba(96,116,158,0.5)";
+  ctx.lineWidth = 2 * s;
+  ctx.beginPath();
+  ctx.moveTo(bx0 + nx * 8 * s, by0 + ny * 8 * s);
+  ctx.lineTo(bx2 + nx * 8 * s, by2 + ny * 8 * s);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(141,255,87,0.55)";
+  ctx.lineWidth = 2.5 * s;
+  ctx.beginPath(); ctx.arc(bx2, by2, 16 * s, 0, 6.283); ctx.stroke();
+
+  // molla di rinculo
+  ctx.strokeStyle = "rgba(70,86,122,0.85)";
+  ctx.lineWidth = 2 * s;
+  for (let i = 0; i < 4; i++) {
+    const k = i / 3;
+    const ox = x0 - dx * (10 + k * 16) * s;
+    const oy = y0 - dy * (10 + k * 16) * s;
+    ctx.beginPath();
+    ctx.moveTo(ox + nx * 9 * s, oy + ny * 9 * s);
+    ctx.lineTo(ox - nx * 9 * s, oy - ny * 9 * s);
+    ctx.stroke();
+  }
+
+  // serbatoio di slime
+  const tx = px - 58 * s, ty = py - 46 * s, tw = 44 * s, th = 58 * s;
+  ctx.fillStyle = "rgba(20,46,30,0.95)";
+  ctx.strokeStyle = "rgba(84,132,96,1)";
+  ctx.lineWidth = 2;
+  rounded(tx, ty, tw, th, 8 * s, true);
+  ctx.fillStyle = "rgba(72,205,96,0.78)";
+  rounded(tx + 3 * s, ty + 14 * s, tw - 6 * s, th - 17 * s, 7 * s, true);
+  for (let i = 0; i < 3; i++) {
+    const ph = ((t * 0.55 + i * 0.37) % 1);
+    const bxx = tx + 9 * s + i * 11 * s;
+    const byy = ty + th - 8 * s - ph * (th - 26 * s);
+    ctx.fillStyle = "rgba(220,255,200,0.6)";
+    ctx.beginPath(); ctx.arc(bxx, byy, (2.6 - i * 0.4) * s, 0, 6.283); ctx.fill();
+  }
+  ctx.strokeStyle = "rgba(96,140,108,0.85)";
+  for (const fy of [ty + 10 * s, ty + 30 * s]) {
+    ctx.beginPath(); ctx.moveTo(tx - 3 * s, fy); ctx.lineTo(tx + tw + 3 * s, fy); ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(210,255,200,0.85)";
+  ctx.font = `${Math.round(10 * s)}px ui-monospace, monospace`;
+  ctx.fillText("SLIME", tx - 3 * s, ty - 6 * s);
+
+  // tubo serbatoio → canna
+  ctx.strokeStyle = "rgba(58,74,104,0.95)";
+  ctx.lineWidth = 5 * s;
+  ctx.beginPath();
+  ctx.moveTo(tx + tw - 6 * s, ty + 6 * s);
+  ctx.lineTo(px - 4 * s, py - 26 * s);
+  ctx.lineTo(x0 + 10 * s, y0 - 14 * s);
+  ctx.stroke();
+
+  // torretta
+  ctx.fillStyle = "#29324c";
+  ctx.strokeStyle = "rgba(80,96,136,1)";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(px, py, 22 * s, 0, 6.283); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#1e2638";
+  ctx.beginPath(); ctx.arc(px, py + 2 * s, 9 * s, 0, 6.283); ctx.fill();
+
+  // base
+  ctx.fillStyle = "#1e2436";
+  rounded(px - 34 * s, py + 22 * s, 68 * s, suolo - 6 * s - (py + 22 * s), 10 * s, true);
+  ctx.strokeStyle = "rgba(141,255,87,0.28)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(px - 24 * s, py + 32 * s);
+  ctx.lineTo(px + 24 * s, py + 32 * s);
+  ctx.stroke();
+
+  // bagliore della bocca
+  ctx.save();
+  ctx.shadowColor = "#8dff57";
+  ctx.shadowBlur = 18 + flash * 40;
+  ctx.fillStyle = "#8dff57";
+  ctx.beginPath(); ctx.arc(bx2, by2, (5 + flash * 6) * s, 0, 6.283); ctx.fill();
+  ctx.restore();
+
+  // lampo di sparo
+  if (flash > 0.05) {
+    ctx.globalAlpha = Math.min(1, flash) * 0.9;
+    const fg = ctx.createRadialGradient(bx2, by2, 2, bx2, by2, 70 * s);
+    fg.addColorStop(0, "#ffffff");
+    fg.addColorStop(0.45, "rgba(200,255,170,0.85)");
+    fg.addColorStop(1, "rgba(141,255,87,0)");
+    ctx.fillStyle = fg;
+    ctx.beginPath(); ctx.arc(bx2, by2, 70 * s, 0, 6.283); ctx.fill();
+
+    // stella di scintille
+    ctx.strokeStyle = `rgba(255,255,235,${0.7 * flash})`;
+    ctx.lineWidth = 2.5 * s;
+    for (let i = 0; i < 7; i++) {
+      const a = mira + (i - 3) * 0.22;
+      const L = (34 + 26 * Math.sin(t * 41 + i)) * flash * s;
+      ctx.beginPath();
+      ctx.moveTo(bx2, by2);
+      ctx.lineTo(bx2 + Math.cos(a) * L, by2 + Math.sin(a) * L);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function disegnaMira() {
+  const s = scala;
+  const x0 = cannone.x + Math.cos(mira) * cannone.lunghezza * s;
+  const y0 = cannone.y + Math.sin(mira) * cannone.lunghezza * s;
+  const v = 1400;
+  let terra = null;
+  ctx.fillStyle = "#8dff57";
+  for (let i = 1; i <= 26; i++) {
+    const tt = i * 0.04;
+    const x = x0 + Math.cos(mira) * v * tt;
+    const y = y0 + Math.sin(mira) * v * tt + 0.5 * 1500 * tt * tt;
+    if (y > suolo || x > W - 26) { terra = Math.min(x, W - 26); break; }
+    ctx.globalAlpha = 0.38 * (1 - i / 29);
+    ctx.beginPath();
+    ctx.arc(x, y, 2.4, 0, 6.283);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  if (terra !== null) {
+    const pulse = 0.5 + 0.5 * Math.sin(t * 5);
+    ctx.strokeStyle = `rgba(141,255,87,${0.28 + 0.2 * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(terra, suolo - 1, 18 + 3 * pulse, 5, 0, 0, 6.283);
+    ctx.stroke();
+  }
+}
+
+function disegnaPolvere() {
+  for (let i = 0; i < 20; i++) {
+    const px = (i * 137.5 + t * 6 * (0.4 + (i % 5) * 0.22)) % W;
+    const py = 40 + (i * 73) % Math.max(1, suolo - 80) + Math.sin(t * 0.6 + i) * 5;
+    ctx.fillStyle = "rgba(160,255,180,0.10)";
+    ctx.beginPath();
+    ctx.arc(px, py, 1 + (i % 3), 0, 6.283);
+    ctx.fill();
+  }
+}
+
+// ---------- 8. LOOP ----------
+function aggiorna(dt) {
+  t += dt;
+
+  if (premuto && t > prossimoColpo) {
+    spara();
+    prossimoColpo = t + 0.42;
+  }
+
+  rinculo  = Math.max(0, rinculo - dt * 5.5);
+  flash    = Math.max(0, flash - dt * 6.5);
+  scossa   = Math.max(0, scossa - dt * 18);
+  zoomKick = Math.max(0, zoomKick - dt * 6);
+
+  for (let i = particelle.length - 1; i >= 0; i--) {
+    const p = particelle[i];
+    p.update(dt);
+    if (p.morta || p.y > H + 300) particelle.splice(i, 1);
+  }
+  for (let i = macchie.length - 1; i >= 0; i--) {
+    macchie[i].vita -= dt;
+    if (macchie[i].vita <= 0) macchie.splice(i, 1);
+  }
+}
+
+function disegna() {
+  // camera: zoom morbido + scossa
+  const zoom = 1 + 0.012 * Math.sin(t * 0.5) + 0.035 * zoomKick;
+  ctx.save();
+  ctx.clearRect(0, 0, W, H);
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-W / 2, -H / 2);
+  if (scossa > 0.2) {
+    ctx.translate(CASUALE(-scossa, scossa), CASUALE(-scossa, scossa));
+  }
+
+  disegnaFondo();
+  disegnaPolvere();
+  for (const m of macchie) disegnaMacchia(m);
+  disegnaMira();
+  disegnaCannone();
+  for (const p of particelle) disegnaPallina(p);
+  ctx.restore();
+
+  // vignettatura
+  const vg = ctx.createRadialGradient(W * 0.5, H * 0.45, Math.min(W, H) * 0.35,
+                                      W * 0.5, H * 0.5,  Math.max(W, H) * 0.78);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  // HUD
+  ctx.fillStyle = "rgba(180,240,170,0.45)";
+  ctx.font = "11px ui-monospace, monospace";
+  ctx.fillText(
+    "PARTICELLE " + String(particelle.length).padStart(3, "0") +
+    "   MACCHIE " + String(macchie.length).padStart(3, "0") +
+    "   COLPI " + String(colpi).padStart(3, "0"), 24, H - 22);
+}
+
+let ultimo = performance.now();
+function loop(adesso) {
+  const dt = Math.min(0.033, (adesso - ultimo) / 1000);
+  ultimo = adesso;
+  aggiorna(dt);
+  disegna();
+  requestAnimationFrame(loop);
+}
+
+// ---------- 9. INPUT ----------
+let premuto = false, prossimoColpo = 0;
+const puntatore = { x: window.innerWidth * 0.7, y: window.innerHeight * 0.35 };
+
+function aggiornaMira() {
+  const dx = puntatore.x - cannone.x;
+  const dy = puntatore.y - cannone.y;
+  mira = Math.max(-1.45, Math.min(-0.08, Math.atan2(dy, dx)));
+}
+
+tela.addEventListener("pointermove", (e) => {
+  puntatore.x = e.clientX;
+  puntatore.y = e.clientY;
+  aggiornaMira();
+});
+tela.addEventListener("pointerdown", (e) => {
+  premuto = true;
+  puntatore.x = e.clientX;
+  puntatore.y = e.clientY;
+  aggiornaMira();
+  spara();
+  prossimoColpo = t + 0.42;
+});
+window.addEventListener("pointerup", () => { premuto = false; });
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space") { e.preventDefault(); spara(); }
+  if (e.code === "KeyR") { macchie.length = 0; particelle.length = 0; colpi = 0; }
+});
+
+// ---------- 10. AVVIO ----------
+adatta();
+mira = -0.62;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
