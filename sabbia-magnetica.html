@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0a0f'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23ffcf7a'/%3E%3Ccircle cx='20' cy='24' r='3' fill='%23e8ad60'/%3E%3Ccircle cx='45' cy='22' r='3.4' fill='%23fad08a'/%3E%3Ccircle cx='24' cy='45' r='3.6' fill='%23c68440'/%3E%3Ccircle cx='44' cy='43' r='3' fill='%23ffeeca'/%3E%3C/svg%3E">
+<title>Sabbia Magnetica — demo DigitalHub</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #08070a; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: crosshair; }
+
+  /* alone caldo + vignettatura: danno profondità alla scena */
+  #velo {
+    position: fixed; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(62% 52% at 50% 46%, rgba(255,183,77,.075), transparent 70%),
+      radial-gradient(110% 110% at 50% 50%, transparent 52%, rgba(0,0,0,.62) 100%);
+  }
+
+  #hud, #bar, #forma {
+    font-family: ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace;
+    user-select: none;
+  }
+  #hud {
+    position: fixed; left: 24px; top: 18px; pointer-events: none;
+    color: #e8c99a; font-size: 11.5px; letter-spacing: .16em; opacity: .92; line-height: 1.85;
+  }
+  #hud b { display: block; font-size: 17px; letter-spacing: .26em; color: #ffcf7a; margin-bottom: 4px; }
+  #hud span { display: block; margin-top: 10px; color: #8a7f70; letter-spacing: .13em; }
+
+  #forma {
+    position: fixed; left: 24px; bottom: 20px; pointer-events: none;
+    font-size: 11px; letter-spacing: .18em; color: #6f6558;
+  }
+  #forma b { color: #ffcf7a; font-weight: 600; }
+
+  #bar {
+    position: fixed; right: 22px; top: 20px; z-index: 10;
+    display: flex; align-items: center; gap: 12px;
+    font-size: 12px; letter-spacing: .12em;
+  }
+  #bar a {
+    color: #cbb79b; text-decoration: none; padding: 9px 14px; border-radius: 10px;
+    border: 1px solid rgba(255,190,110,.28); background: rgba(16,12,8,.62);
+    backdrop-filter: blur(6px); transition: color .18s, border-color .18s, background .18s;
+    white-space: nowrap;
+  }
+  #bar a:hover { color: #fff3dc; border-color: rgba(255,190,110,.8); background: rgba(30,20,12,.82); }
+  #bar a.yt { border-color: rgba(255,90,90,.35); color: #e6b3b3; }
+  #bar a.yt:hover { color: #ffdcdc; border-color: rgba(255,90,90,.8); }
+
+  @media (max-width: 760px) {
+    #hud { left: 14px; top: 12px; font-size: 9.5px; line-height: 1.7; }
+    #hud b { font-size: 13px; }
+    #forma { left: 14px; bottom: 12px; font-size: 9px; }
+    #bar { left: 10px; right: 10px; top: auto; bottom: 34px; justify-content: flex-end; gap: 6px; font-size: 10px; }
+    #bar a { padding: 7px 9px; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="tela"></canvas>
+  <div id="velo"></div>
+
+  <div id="hud">
+    <b>SABBIA MAGNETICA</b>
+    <div>MUOVI IL MOUSE &nbsp;—&nbsp; IL MAGNETE ATTIRA</div>
+    <div>TIENI PREMUTO &nbsp;—&nbsp; VORTICE</div>
+    <div>SPAZIO &nbsp;—&nbsp; ESPLOSIONE</div>
+    <span>1 SCRITTA &nbsp;·&nbsp; 2 SFERA &nbsp;·&nbsp; 3 GALASSIA &nbsp;·&nbsp; R RESET</span>
+  </div>
+
+  <div id="forma">FORMA: <b id="forma-nome">SCRITTA</b></div>
+
+  <div id="bar">
+    <a class="yt" href="https://www.youtube.com/channel/UCkTXX_ZO05a-GV9CJS8P3Lg"
+       target="_blank" rel="noopener">▶ DIGITALHUB</a>
+    <a href="./sabbia-magnetica.html" download="sabbia-magnetica.html">⤓ SCARICA IL CODICE</a>
+    <a href="./index.html">← DEMO</a>
+  </div>
+
+<script>
+/* ============================================================
+   SABBIA MAGNETICA — effetto VFX in puro HTML + JavaScript
+   1 tela · 2 granelli (typed arrays) · 3 forme · 4 magnetismo · 5 disegno
+   Muovi il mouse: 15.000 granelli si comportano come sabbia vera.
+   ============================================================ */
+
+// ---------- 1. SETUP ----------
+const tela = document.querySelector("#tela");
+const ctx  = tela.getContext("2d", { alpha: true });
+
+let W = 0, H = 0, CX = 0, CY = 0;
+
+// quante particelle: dipende dallo schermo (più pixel = più sabbia)
+const contaGranelli = () =>
+  Math.round(Math.min(18000, Math.max(6000, (window.innerWidth * window.innerHeight) / 120)));
+
+let N = 0;
+
+// --- i dati della sabbia, in memoria compatta (typed arrays) ---
+let px, py;      // posizione
+let vx, vy;      // velocità
+let hx, hy;      // "casa": dove il granello vuole tornare
+let gs;          // dimensione del granello (px)
+let bx, by, bz;  // coordinate base per le forme 3D (sfera, galassia)
+let bucket;      // indice del colore
+
+// palette: cinque toni di sabbia, dal più scuro al più luminoso
+const COLORI = [
+  "rgba(150, 96, 46, .92)",
+  "rgba(198, 132, 62, .94)",
+  "rgba(232, 173, 96, .95)",
+  "rgba(250, 208, 138, .96)",
+  "rgba(255, 240, 202, .97)",
+];
+const NB = COLORI.length;
+let indiceBucket = [];   // liste di indici, per cambiare fillStyle solo 5 volte a frame
+
+// ---------- 2. STATO ----------
+const puntatore = { x: 0, y: 0, tx: 0, ty: 0, dentro: false, premuto: false };
+let forma      = 0;          // 0 scritta · 1 sfera · 2 galassia
+const NOMI     = ["SCRITTA", "SFERA", "GALASSIA"];
+let angolo     = 0;          // rotazione delle forme 3D
+let ultimoInput = performance.now();
+let pronto     = false;
+let testoScala = 1;
+
+const CASUALE = (a, b) => a + Math.random() * (b - a);
+
+// posizione reale del magnete in questo frame (mouse o vagabondaggio automatico)
+const magnete = { x: 0, y: 0, raggio: 220, attivo: false };
+
+// ---------- 3. COSTRUZIONE DEI GRANELLI ----------
+function costruisci() {
+  N = contaGranelli();
+
+  px = new Float32Array(N); py = new Float32Array(N);
+  vx = new Float32Array(N); vy = new Float32Array(N);
+  hx = new Float32Array(N); hy = new Float32Array(N);
+  gs = new Float32Array(N);
+  bx = new Float32Array(N); by = new Float32Array(N); bz = new Float32Array(N);
+  bucket = new Uint8Array(N);
+
+  indiceBucket = Array.from({ length: NB }, () => []);
+
+  const R3 = Math.min(W, H) * 0.34;   // raggio delle forme 3D
+
+  for (let i = 0; i < N; i++) {
+    // ognuno parte da un punto a caso: all'avvio volano tutti verso la forma
+    px[i] = CASUALE(0, W);
+    py[i] = CASUALE(0, H);
+    vx[i] = 0; vy[i] = 0;
+    gs[i] = CASUALE(0.8, 2.1);
+
+    // colore: più chiaro verso l'alto, con un po' di casualità
+    const r = Math.random();
+    bucket[i] = r < 0.10 ? 0 : r < 0.32 ? 1 : r < 0.66 ? 2 : r < 0.90 ? 3 : 4;
+    indiceBucket[bucket[i]].push(i);
+
+    // --- base per SFERA: distribuzione di Fibonacci (punti quasi uniformi) ---
+    if (forma === 1) {
+      const y = 1 - (i / (N - 1)) * 2;
+      const raggio = Math.sqrt(Math.max(0, 1 - y * y));
+      const theta = i * 2.399963229728653;      // angolo d'oro
+      bx[i] = Math.cos(theta) * raggio;
+      by[i] = y;
+      bz[i] = Math.sin(theta) * raggio;
+    } else {
+      // --- base per GALASSIA: tre bracci a spirale, schiacciata ---
+      const t = i / N;
+      const braccio = (i % 3) * ((Math.PI * 2) / 3);
+      const raggio = Math.sqrt(t) * 1.05;                  // più densa al centro
+      const ang = braccio + raggio * 5.2 + CASUALE(-0.16, 0.16);
+      bx[i] = Math.cos(ang) * raggio;
+      by[i] = Math.sin(ang) * raggio;
+      bz[i] = CASUALE(-0.05, 0.05) * (1.2 - t);
+    }
+  }
+  R3raggio = R3;
+  if (forma === 0) calcolaScritta("DIGITALHUB");
+}
+
+let R3raggio = 300;
+
+// ---------- 4. FORMA "SCRITTA": leggo i pixel del testo ----------
+/* Trucco: disegno la parola su un canvas invisibile, poi leggo i pixel
+   con getImageData. Ogni pixel acceso diventa una possibile "casa".  */
+function calcolaScritta(testo) {
+  const off = document.createElement("canvas");
+  const octx = off.getContext("2d");
+  off.width = 1200; off.height = 320;
+
+  // trovo la dimensione giusta per stare nel 78% della larghezza
+  let dim = 200;
+  octx.font = `900 ${dim}px "Arial Black", "Segoe UI", system-ui, sans-serif`;
+  const misura = octx.measureText(testo).width;
+  dim = Math.min(dim * (1080 / Math.max(misura, 1)), H * 0.30);
+
+  octx.font = `900 ${dim}px "Arial Black", "Segoe UI", system-ui, sans-serif`;
+  octx.textAlign = "center";
+  octx.textBaseline = "middle";
+  octx.fillStyle = "#fff";
+  octx.fillText(testo, 600, 160);
+
+  const dati = octx.getImageData(0, 0, 1200, 320).data;
+  const punti = [];
+
+  // passo di campionamento: fitto sui monitor grandi, rado sui piccoli
+  const passo = Math.max(2, Math.round(1200 / (W * 0.95)) + 1);
+
+  for (let y = 0; y < 320; y += passo) {
+    for (let x = 0; x < 1200; x += passo) {
+      if (dati[(y * 1200 + x) * 4 + 3] > 128) punti.push(x, y);
+    }
+  }
+  if (!punti.length) { for (let i = 0; i < 200; i++) punti.push(600, 160); }
+
+  const nPunti = punti.length / 2;
+  const scala = Math.min((W * 0.82) / 1200, (H * 0.52) / 320);
+  const offX = CX - 600 * scala;
+  const offY = CY - 160 * scala;
+  testoScala = scala;
+
+  for (let i = 0; i < N; i++) {
+    const k = (Math.random() * nPunti) | 0;
+    hx[i] = offX + punti[k * 2] * scala + CASUALE(-0.9, 0.9);
+    hy[i] = offY + punti[k * 2 + 1] * scala + CASUALE(-0.9, 0.9);
+  }
+}
+
+// ---------- 5. CASE PER SFERA E GALASSIA (ruotano ogni frame) ----------
+function caseRuotanti(dt) {
+  angolo += dt * 0.5;
+  const R = R3raggio;
+
+  if (forma === 1) {
+    /* SFERA: rotazione 3D vera, con inclinazione fissa e prospettiva */
+    const cb = Math.cos(angolo), sb = Math.sin(angolo);
+    const incl = 0.42, ca = Math.cos(incl), sa = Math.sin(incl);
+    const fov = R * 3.4;
+
+    for (let i = 0; i < N; i++) {
+      const x = bx[i], y = by[i], z = bz[i];
+      const x1 =  x * cb + z * sb;          // giro attorno all'asse verticale
+      const z1 = -x * sb + z * cb;
+      const y1 = y * ca - z1 * sa;          // inclinazione
+      const z2 = y * sa + z1 * ca;
+      const prosp = fov / (fov + z2 * R);   // chi è dietro rimpicciolisce
+      hx[i] = CX + x1 * R * prosp;
+      hy[i] = CY + y1 * R * prosp;
+    }
+  } else {
+    /* GALASSIA: disco inclinato che gira su sé stesso (niente prospettiva
+       esagerata: solo uno schiacciamento fisso, come vederlo da sopra) */
+    const cb = Math.cos(angolo), sb = Math.sin(angolo);
+
+    for (let i = 0; i < N; i++) {
+      const x = bx[i], y = by[i];
+      const x1 =  x * cb - y * sb;
+      const y1 =  x * sb + y * cb;
+      hx[i] = CX + x1 * R;
+      hy[i] = CY + y1 * R * 0.46 + bz[i] * R * 2.2;
+    }
+  }
+}
+
+// ---------- 6. FISICA: molla verso casa + magnete ----------
+function muovi(dt) {
+  const step = Math.min(dt, 0.034) * 60;      // normalizzo a "60 fps"
+
+  // il magnete segue il mouse con un po' di ritardo: si sente più pesante
+  puntatore.x += (puntatore.tx - puntatore.x) * 0.22;
+  puntatore.y += (puntatore.ty - puntatore.y) * 0.22;
+
+  // se non tocchi nulla per 3.5 s, il magnete vaga da solo (demo viva)
+  const inattivo = performance.now() - ultimoInput > 3500;
+  let mx = puntatore.x, my = puntatore.y, forza = 0.26, vortice = 0.22, raggio = Math.min(W, H) * 0.34;
+  if (inattivo && !puntatore.premuto) {
+    const t = performance.now() / 1000;
+    mx = CX + Math.cos(t * 0.55) * W * 0.26;
+    my = CY + Math.sin(t * 0.83) * H * 0.20;
+    forza = 0.16; raggio = Math.min(W, H) * 0.26; vortice = 0.24;
+  }
+  if (puntatore.dentro || inattivo) {
+    if (puntatore.premuto) { forza = 0.34; vortice = 1.5; raggio *= 1.25; }
+  } else { forza = 0; }
+
+  magnete.x = mx; magnete.y = my; magnete.raggio = raggio; magnete.attivo = forza > 0;
+  const R2 = raggio * raggio;
+
+  for (let i = 0; i < N; i++) {
+    // 1) molla elastica verso la propria "casa"
+    let ax = (hx[i] - px[i]) * 0.020;
+    let ay = (hy[i] - py[i]) * 0.020;
+
+    // 2) magnete: attrazione che cala con la distanza (f², morbida)
+    const dx = mx - px[i], dy = my - py[i];
+    const d2 = dx * dx + dy * dy;
+
+    if (d2 < R2) {
+      const d = Math.sqrt(d2) + 0.001;
+      const f = 1 - d / raggio;
+      const ff = f * f * forza * 1.9;
+
+      ax += (dx / d) * ff;
+      ay += (dy / d) * ff;
+
+      // 3) vortice: forza perpendicolare al magnete (fa girare la sabbia)
+      if (vortice > 0) {
+        const fv = f * vortice * 1.5;
+        ax += (-dy / d) * fv;
+        ay += ( dx / d) * fv;
+      }
+    }
+
+    // 4) micro-vibrazione: la sabbia non sta mai perfettamente ferma
+    ax += (Math.random() - 0.5) * 0.10;
+    ay += (Math.random() - 0.5) * 0.10;
+
+    // 5) integrazione + attrito
+    vx[i] = (vx[i] + ax * step) * 0.895;
+    vy[i] = (vy[i] + ay * step) * 0.895;
+
+    px[i] += vx[i] * step;
+    py[i] += vy[i] * step;
+  }
+}
+
+// ---------- 7. DISEGNO ----------
+function disegna() {
+  // scia: cancello piano il frame vecchio invece di pulire tutto
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.fillStyle = "rgba(0,0,0,0.26)";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.globalCompositeOperation = "source-over";
+
+  // 5 cambi di stile in tutto: disegno i granelli raggruppati per colore
+  for (let b = 0; b < NB; b++) {
+    ctx.fillStyle = COLORI[b];
+    const lista = indiceBucket[b];
+    for (let k = 0; k < lista.length; k++) {
+      const i = lista[k];
+      ctx.fillRect(px[i], py[i], gs[i], gs[i]);
+    }
+  }
+
+  // alone luminoso attorno al magnete (dove sta davvero, anche quando vaga da solo)
+  if (magnete.attivo) {
+    const r = magnete.raggio * 0.62;
+    const g = ctx.createRadialGradient(magnete.x, magnete.y, 0, magnete.x, magnete.y, r);
+    g.addColorStop(0, puntatore.premuto ? "rgba(255,214,150,.20)" : "rgba(255,190,110,.11)");
+    g.addColorStop(0.5, "rgba(255,180,100,.04)");
+    g.addColorStop(1, "rgba(255,190,110,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(magnete.x, magnete.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ---------- 8. LOOP ----------
+let ultimo = performance.now();
+function loop(ora) {
+  const dt = Math.min((ora - ultimo) / 1000, 0.05);
+  ultimo = ora;
+
+  if (forma === 0) {
+    // la scritta è statica: le case restano dove sono
+  } else {
+    caseRuotanti(dt);
+  }
+
+  muovi(dt);
+  disegna();
+  requestAnimationFrame(loop);
+}
+
+// ---------- 9. DIMENSIONI ----------
+function adatta() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  tela.width  = Math.round(W * dpr);
+  tela.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  CX = W / 2; CY = H / 2;
+
+  if (!pronto) {
+    puntatore.x = puntatore.tx = CX;
+    puntatore.y = puntatore.ty = CY * 1.02;
+  }
+
+  costruisci();                                   // ricrea la sabbia con la nuova densità
+  if (forma === 0) calcolaScritta("DIGITALHUB");  // riposiziona la scritta
+
+  ctx.clearRect(0, 0, W, H);
+}
+
+// ---------- 10. INPUT ----------
+function cambiaForma(n) {
+  forma = n;
+  angolo = 0;
+  document.querySelector("#forma-nome").textContent = NOMI[n];
+  if (n === 0) {
+    calcolaScritta("DIGITALHUB");
+  } else {
+    // rigenero le basi 3D per la nuova forma
+    const R3 = Math.min(W, H) * 0.34;
+    R3raggio = R3;
+    for (let i = 0; i < N; i++) {
+      if (n === 1) {
+        const y = 1 - (i / (N - 1)) * 2;
+        const raggio = Math.sqrt(Math.max(0, 1 - y * y));
+        const theta = i * 2.399963229728653;
+        bx[i] = Math.cos(theta) * raggio; by[i] = y; bz[i] = Math.sin(theta) * raggio;
+      } else {
+        const t = i / N;
+        const braccio = (i % 3) * ((Math.PI * 2) / 3);
+        const raggio = Math.sqrt(t) * 1.05;
+        const ang = braccio + raggio * 5.2 + CASUALE(-0.16, 0.16);
+        bx[i] = Math.cos(ang) * raggio; by[i] = Math.sin(ang) * raggio;
+        bz[i] = CASUALE(-0.05, 0.05) * (1.2 - t);
+      }
+    }
+  }
+}
+
+function esplosione() {
+  const mx = puntatore.dentro ? puntatore.x : CX;
+  const my = puntatore.dentro ? puntatore.y : CY;
+  for (let i = 0; i < N; i++) {
+    const dx = px[i] - mx, dy = py[i] - my;
+    const d = Math.sqrt(dx * dx + dy * dy) + 0.001;
+    const f = Math.max(0, 1 - d / (Math.min(W, H) * 0.55));
+    const p = f * f * 26;
+    vx[i] += (dx / d) * p + CASUALE(-1, 1);
+    vy[i] += (dy / d) * p + CASUALE(-1, 1);
+  }
+}
+
+tela.addEventListener("pointermove", (e) => {
+  puntatore.tx = e.clientX;
+  puntatore.ty = e.clientY;
+  puntatore.dentro = true;
+  ultimoInput = performance.now();
+});
+tela.addEventListener("pointerdown", (e) => {
+  puntatore.premuto = true;
+  puntatore.tx = puntatore.x = e.clientX;
+  puntatore.ty = puntatore.y = e.clientY;
+  puntatore.dentro = true;
+  ultimoInput = performance.now();
+});
+window.addEventListener("pointerup", () => { puntatore.premuto = false; });
+window.addEventListener("pointerleave", () => { puntatore.dentro = false; });
+
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space") { e.preventDefault(); esplosione(); }
+  if (e.code === "Digit1") cambiaForma(0);
+  if (e.code === "Digit2") cambiaForma(1);
+  if (e.code === "Digit3") cambiaForma(2);
+  if (e.code === "KeyR") {
+    for (let i = 0; i < N; i++) { px[i] = CASUALE(0, W); py[i] = CASUALE(0, H); vx[i] = vy[i] = 0; }
+  }
+});
+
+window.addEventListener("resize", adatta);
+
+// ---------- 11. AVVIO ----------
+adatta();
+pronto = true;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
