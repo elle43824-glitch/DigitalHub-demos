@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Testo in particelle — DigitalHub</title>
+<meta name="description" content="Scrivi una parola e guardala esplodere in particelle. HTML + Canvas, zero librerie.">
+<style>
+  :root {
+    --bg: #08080e;
+    --card: #0e0d17;
+    --card2: #161421;
+    --ink: #eef2ff;
+    --muted: #8b93ad;
+    --accent: #ff9150;
+    --line: rgba(255, 255, 255, .10);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+  }
+
+  /* griglia + alone, come nello sfondo del video */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(46% 38% at 50% 46%, rgba(255, 145, 80, .13), transparent 72%),
+      radial-gradient(34% 28% at 88% 96%, rgba(80, 120, 255, .10), transparent 72%),
+      linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px);
+    background-size: auto, auto, 60px 60px, 60px 60px;
+    pointer-events: none;
+  }
+
+  .page {
+    position: relative;
+    height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: 18px 16px;
+  }
+
+  /* ---------------- card (la stessa del video) ---------------- */
+  .app {
+    width: min(760px, 100%);
+    height: min(100%, 860px);
+    display: flex;
+    flex-direction: column;
+    border-radius: 26px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    box-shadow: 0 34px 90px rgba(0, 0, 0, .62), 0 0 0 1px rgba(255, 255, 255, .02) inset;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* barra browser */
+  .chrome {
+    height: 62px;
+    flex: 0 0 62px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 20px;
+    background: var(--card2);
+    border-bottom: 1px solid var(--line);
+  }
+  .dots { display: flex; gap: 8px; }
+  .dots i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .dots i:nth-child(1) { background: #ff5f57; }
+  .dots i:nth-child(2) { background: #ffbd2e; }
+  .dots i:nth-child(3) { background: #27c93f; }
+  .fname { margin-left: 10px; font: 500 15px/1 ui-monospace, Menlo, monospace; color: #9aa2ba; }
+  .live { margin-left: auto; display: flex; align-items: center; gap: 8px; font: 700 13px/1 ui-monospace, Menlo, monospace; letter-spacing: .1em; color: #96e6a0; }
+  .live b { width: 9px; height: 9px; border-radius: 50%; background: #78dc8c; box-shadow: 0 0 10px #78dc8c; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* campo di scrittura */
+  .bar { display: flex; gap: 10px; padding: 16px; }
+  .bar input {
+    flex: 1; min-width: 0;
+    padding: 16px 18px;
+    border: 1px solid rgba(255, 255, 255, .07);
+    border-radius: 14px;
+    background: #1c1a2a;
+    color: var(--ink);
+    font: 600 18px/1.2 inherit;
+    outline: none;
+    transition: border-color .18s, box-shadow .18s;
+  }
+  .bar input::placeholder { color: #6b7290; font-weight: 500; }
+  .bar input:focus { border-color: rgba(255, 145, 80, .55); box-shadow: 0 0 0 4px rgba(255, 145, 80, .10); }
+  .bar button {
+    flex: 0 0 auto;
+    padding: 0 26px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--accent);
+    color: #2a1206;
+    font: 800 17px/1 inherit;
+    cursor: pointer;
+    transition: transform .12s, filter .18s;
+  }
+  .bar button:active { transform: scale(.96); }
+  .bar button:hover { filter: brightness(1.07); }
+
+  /* palcoscenico: qui vivono le particelle */
+  .stage { position: relative; flex: 1 1 auto; min-height: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  .hint {
+    position: absolute;
+    left: 0; right: 0; bottom: 12px;
+    text-align: center;
+    font: 600 12px/1 ui-monospace, Menlo, monospace;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: #6f7692;
+    pointer-events: none;
+    transition: opacity .35s;
+  }
+  .hint.off { opacity: 0; }
+
+  /* footer della card */
+  .foot { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px 16px 16px; border-top: 1px solid var(--line); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 16px; border-radius: 999px;
+    font: 700 13.5px/1 inherit; text-decoration: none;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, .04);
+    color: #cdd4e6;
+    transition: background .18s, transform .12s;
+  }
+  .chip:hover { background: rgba(255, 255, 255, .09); }
+  .chip:active { transform: scale(.98); }
+  .chip.accent { background: var(--accent); border-color: transparent; color: #2a1206; }
+  .chip.accent:hover { filter: brightness(1.06); background: var(--accent); }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #cdd4e6; }
+
+  @media (max-width: 560px) {
+    .page { padding: 0; }
+    .app { width: 100%; height: 100dvh; border-radius: 0; border: 0; }
+    .chrome { height: 54px; flex-basis: 54px; padding: 0 14px; }
+    .fname { font-size: 13px; }
+    .bar { padding: 12px; }
+    .bar input { padding: 14px; font-size: 16px; }
+    .bar button { padding: 0 18px; font-size: 15px; }
+    .foot { padding: 10px 12px 12px; }
+    .chip { padding: 9px 13px; font-size: 12.5px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="app">
+    <div class="chrome">
+      <span class="dots"><i></i><i></i><i></i></span>
+      <span class="fname">particelle-testo.html</span>
+      <span class="live"><b></b> LIVE</span>
+    </div>
+
+    <form class="bar" id="form" autocomplete="off">
+      <input id="word" maxlength="16" placeholder="Scrivi qui…" aria-label="Scrivi una parola">
+      <button type="submit">Crea</button>
+    </form>
+
+    <div class="stage">
+      <canvas id="stage"></canvas>
+      <div class="hint" id="hint">scrivi una parola e premi invio</div>
+    </div>
+
+    <div class="foot">
+      <a class="chip" id="gh" href="#" target="_blank" rel="noopener"><span class="dot"></span> codice su GitHub</a>
+      <a class="chip accent" id="yt" href="https://www.youtube.com/channel/UCkTXX_ZO05a-GV9CJS8P3Lg" target="_blank" rel="noopener">ISCRIVITI · DigitalHub</a>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   TESTO IN PARTICELLE
+   Scrivi una parola e premi invio: la parola viene disegnata su
+   un canvas invisibile, letta pixel per pixel, e ogni pixel acceso
+   diventa una particella. Le particelle partono dal basso,
+   esplodono e si posano a formare la scritta.
+   Il mouse (o il dito) le spinge via: quando lo allontani tornano.
+   ============================================================ */
+
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+const form = document.getElementById('form');
+const input = document.getElementById('word');
+const hint = document.getElementById('hint');
+const stageEl = canvas.parentElement;
+
+/* la scritta di partenza */
+const FIRST = 'ISCRIVITI';
+
+/* ---------- dimensioni ---------- */
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  const r = stageEl.getBoundingClientRect();
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(80, Math.round(r.width));
+  H = Math.max(80, Math.round(r.height));
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (currentText) place(currentText, true);
+}
+
+/* ============================================================
+   1. Dalla parola ai punti
+   ============================================================ */
+const off = document.createElement('canvas');
+const offCtx = off.getContext('2d', { willReadFrequently: true });
+
+/* densità: un punto ogni STEP pixel di testo.
+   È fissa (non dipende dalla dimensione del font), così la scritta
+   resta piena sia sullo schermo grande sia sul telefono. */
+const STEP = 2;
+const MAX = 2400;
+
+function splitLines(text) {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.includes(' ')) {
+    const words = clean.split(' ');
+    const half = Math.ceil(words.length / 2);
+    const a = words.slice(0, half).join(' ');
+    const b = words.slice(half).join(' ');
+    return b ? [a, b] : [a];
+  }
+  if (clean.length > 9) {
+    const mid = Math.ceil(clean.length / 2);
+    return [clean.slice(0, mid), clean.slice(mid)];
+  }
+  return [clean];
+}
+
+function buildPoints(text, maxW, maxH) {
+  const lines = splitLines(text);
+  let size = 300;
+
+  for (;;) {
+    offCtx.font = `900 ${size}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    const widest = Math.max(...lines.map(l => offCtx.measureText(l).width));
+    const totalH = size * 1.04 * lines.length;
+    if ((widest + 24 <= maxW && totalH + 24 <= maxH) || size <= 18) break;
+    size *= 0.94;
+  }
+
+  const lineH = size * 1.04;
+  const pad = 14;
+  const widest = Math.max(...lines.map(l => offCtx.measureText(l).width));
+
+  off.width = Math.ceil(widest + pad * 2);
+  off.height = Math.ceil(lineH * lines.length + pad * 2);
+
+  offCtx.font = `900 ${size}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  offCtx.fillStyle = '#fff';
+  offCtx.textAlign = 'center';
+  offCtx.textBaseline = 'middle';
+  lines.forEach((line, i) => {
+    offCtx.fillText(line, off.width / 2, pad + lineH * (i + 0.5));
+  });
+
+  const w = off.width, h = off.height;
+  const data = offCtx.getImageData(0, 0, w, h).data;
+  const raw = [];
+  for (let y = 0; y < h; y += STEP) {
+    for (let x = 0; x < w; x += STEP) {
+      if (data[(y * w + x) * 4 + 3] > 128) {
+        raw.push([x - w / 2, y - h / 2]);
+      }
+    }
+  }
+  return { pts: raw, area: off.width * off.height, size };
+}
+
+/* ============================================================
+   2. Particelle
+   ============================================================ */
+let parts = [];
+let currentText = '';
+let SCALE = 1;      /* quanto è grande la scritta: regola lo spessore delle particelle */
+
+function rnd(a, b) { return a + Math.random() * (b - a); }
+
+function makeParticle(tx, ty, fromBottom) {
+  return {
+    x: W / 2 + rnd(-90, 90),
+    y: fromBottom ? H + rnd(20, 160) : rnd(0, H),
+    vx: rnd(-160, 160),
+    vy: fromBottom ? rnd(-520, -260) : rnd(-60, 60),
+    tx, ty,
+    r: rnd(1.15, 2.35) * SCALE,
+    a: rnd(.62, 1),
+    hot: Math.random() < .17,
+    ph: rnd(0, 6.283)
+  };
+}
+
+/* la parola viene centrata nel palcoscenico */
+function place(text, keepMotion) {
+  currentText = text;
+  const maxW = Math.min(W * 0.9, 940);
+  const maxH = Math.min(H * 0.66, 520);
+  const built = buildPoints(text, maxW, maxH);
+  const pts = built.pts;
+  if (!pts.length) return;
+
+  const cx = W / 2;
+  const cy = H * 0.47;
+  SCALE = Math.max(.62, Math.min(1.5, built.size / 130));
+
+  /* densità costante: il numero di particelle dipende dall'AREA della scritta,
+     così su telefono e su desktop si vede la stessa "grana" del video */
+  const target = Math.round(Math.min(2600, Math.max(520, built.area * 0.0135)));
+  const k = Math.max(1, Math.ceil(pts.length / target));
+  const chosen = [];
+  for (let i = 0; i < pts.length; i += k) chosen.push(pts[i]);
+  /* mescolo l'ordine, così le particelle non "cadono" in fila */
+  for (let i = chosen.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [chosen[i], chosen[j]] = [chosen[j], chosen[i]];
+  }
+
+  const n = chosen.length;
+  const old = parts;
+  parts = new Array(n);
+
+  for (let i = 0; i < n; i++) {
+    const tx = cx + chosen[i][0];
+    const ty = cy + chosen[i][1];
+    if (keepMotion && old[i]) {
+      /* ridimensionamento: riuso la particella senza farla ripartire */
+      const p = old[i];
+      p.tx = tx; p.ty = ty;
+      parts[i] = p;
+    } else if (old[i]) {
+      /* stessa scena, testo nuovo: riuso posizione e aggiungo spinta */
+      const p = old[i];
+      p.tx = tx; p.ty = ty;
+      p.vx += rnd(-240, 240);
+      p.vy += rnd(-320, -80);
+      parts[i] = p;
+    } else {
+      parts[i] = makeParticle(tx, ty, !keepMotion);
+    }
+  }
+}
+
+/* ============================================================
+   3. Mouse / dito
+   ============================================================ */
+const mouse = { x: -1e4, y: -1e4, on: false };
+let radius = 150;
+
+function setPointer(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = clientX - r.left;
+  mouse.y = clientY - r.top;
+  mouse.on = true;
+}
+
+canvas.addEventListener('pointermove', e => setPointer(e.clientX, e.clientY), { passive: true });
+canvas.addEventListener('pointerdown', e => {
+  setPointer(e.clientX, e.clientY);
+  burst(mouse.x, mouse.y);
+}, { passive: true });
+canvas.addEventListener('pointerleave', () => { mouse.on = false; });
+
+/* colpo: tutte le particelle vicine schizzano via */
+function burst(x, y) {
+  const R = radius * 1.9;
+  for (const p of parts) {
+    const dx = p.x - x, dy = p.y - y;
+    const d = Math.hypot(dx, dy);
+    if (d < R && d > .01) {
+      const f = (1 - d / R) * 900;
+      p.vx += (dx / d) * f;
+      p.vy += (dy / d) * f;
+    }
+  }
+}
+
+/* ============================================================
+   4. Animazione
+   ============================================================ */
+let last = performance.now();
+
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 1 / 30);
+  last = now;
+
+  /* scia: non pulisco del tutto, lascio un velo */
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = 'rgba(14, 13, 23, .55)';
+  ctx.fillRect(0, 0, W, H);
+
+  /* le particelle si sommano (lighter) = effetto luce */
+  ctx.globalCompositeOperation = 'lighter';
+
+  const k = 90;      /* molla verso il bersaglio */
+  const damp = 9;    /* attrito: senza, rimbalzano per sempre */
+
+  for (const p of parts) {
+    let ax = (p.tx - p.x) * k;
+    let ay = (p.ty - p.y) * k;
+
+    if (mouse.on) {
+      const dx = p.x - mouse.x, dy = p.y - mouse.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < radius * radius) {
+        const d = Math.sqrt(d2) || 1;
+        const f = (1 - d / radius);
+        const push = f * f * 3200;
+        ax += (dx / d) * push;
+        ay += (dy / d) * push;
+      }
+    }
+
+    p.vx += (ax - p.vx * damp) * dt;
+    p.vy += (ay - p.vy * damp) * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    /* respiro: da ferme ondeggiano appena */
+    const by = Math.sin(now / 950 + p.ph) * 1.5;
+    const col = p.hot ? '255,145,80' : '235,241,255';
+
+    /* alone */
+    ctx.beginPath();
+    ctx.arc(p.x, p.y + by, p.r * 2.1, 0, 6.2832);
+    ctx.fillStyle = `rgba(${col},${p.a * .055})`;
+    ctx.fill();
+
+    /* nucleo */
+    ctx.beginPath();
+    ctx.arc(p.x, p.y + by, p.r, 0, 6.2832);
+    ctx.fillStyle = `rgba(${col},${p.a})`;
+    ctx.fill();
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+  requestAnimationFrame(frame);
+}
+
+/* ============================================================
+   5. Avvio
+   ============================================================ */
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  const text = (input.value || '').trim();
+  if (!text) { input.focus(); return; }
+  place(text, false);
+  hint.classList.add('off');
+  input.blur();
+});
+
+resize();
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 250));
+
+/* link GitHub automatico: su GitHub Pages l'indirizzo è
+   <utente>.github.io/<repo>/... → il repo si ricava da solo */
+(function linkRepo() {
+  const a = document.getElementById('gh');
+  const fixed = document.body.dataset.repo;
+  const host = location.hostname;
+  let href = fixed || '';
+  if (!href && host.endsWith('.github.io')) {
+    const user = host.split('.')[0];
+    const seg = location.pathname.split('/').filter(Boolean)[0];
+    href = seg ? `https://github.com/${user}/${seg}` : `https://github.com/${user}`;
+  }
+  if (!href) href = 'https://github.com/';
+  a.href = href;
+  a.setAttribute('target', '_blank');
+})();
+
+requestAnimationFrame(frame);
+setTimeout(() => place(FIRST, false), 260);
+</script>
+</body>
+</html>
