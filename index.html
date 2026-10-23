@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DigitalHub — Demo dal vivo</title>
-  <meta name="description" content="Le demo di DigitalHub: prova il cannone di slime, la sabbia magnetica e il testo in particelle direttamente nel browser e scarica il codice.">
+  <meta name="description" content="Le demo di DigitalHub: prova il cannone di slime e il testo in particelle direttamente nel browser e scarica il codice.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230b0a12'/><text x='50' y='68' font-size='46' font-family='system-ui' font-weight='800' text-anchor='middle' fill='%238dff57'>DH</text></svg>">
   <style>
     :root {
@@ -15,7 +15,6 @@
       --muted: #98a2b3;
       --green: #8dff57;
       --cyan: #6ed7ff;
-      --sand: #ffcf7a;
     }
     * { box-sizing: border-box; }
     body {
@@ -57,7 +56,6 @@
     .tag { font-size: 11px; font-weight: 800; letter-spacing: .18em; }
     .tag.green { color: var(--green); }
     .tag.cyan { color: var(--cyan); }
-    .tag.sand { color: var(--sand); }
     .tag.orange { color: #ff9150; }
     .tag.soft { color: #7f89a0; }
     .card h2 { margin: 0; font-size: 23px; }
@@ -70,7 +68,6 @@
     .btn:active { transform: scale(.985); }
     .btn-green { background: var(--green); color: #0a1a06; }
     .btn-orange { background: #ff9150; color: #2a1206; }
-    .btn-sand { background: var(--sand); color: #2a1a05; }
     .btn-ghost { border-color: var(--line); color: var(--text); }
     .btn:hover { filter: brightness(1.07); }
     .hint { font-size: 12.5px; color: #7c869c; line-height: 1.5; }
@@ -128,22 +125,7 @@
         </div>
       </article>
 
-      <!-- CARD 2 — SABBIA MAGNETICA -->
-      <article class="card">
-        <div class="tag sand">TUTORIAL VFX · 15.000 PARTICELLE</div>
-        <h2>Sabbia Magnetica</h2>
-        <p>
-          Muovi il mouse: quindicimila granelli si comportano come sabbia vera.
-          Tieni premuto per il vortice, premi Spazio per l'esplosione, cambia forma.
-        </p>
-        <a class="btn btn-sand" href="./sabbia-magnetica.html">▶ Apri la sabbia</a>
-        <div class="hint">
-          Mouse = magnete · tieni premuto = vortice · <strong>Spazio</strong> esplosione ·
-          <strong>1 2 3</strong> forme
-        </div>
-      </article>
-
-      <!-- CARD 3 — TESTO IN PARTICELLE -->
+      <!-- CARD 2 — TESTO IN PARTICELLE -->
       <article class="card">
         <div class="tag orange">EFFETTO · HTML + CANVAS</div>
         <h2>Testo in Particelle</h2>
@@ -157,7 +139,7 @@
         </div>
       </article>
 
-      <!-- CARD 4 — CODICE -->
+      <!-- CARD 3 — CODICE -->
       <article class="card">
         <div class="tag cyan">CODICE</div>
         <h2>Scarica il codice</h2>
@@ -169,10 +151,8 @@
            download="particelle-testo.html">⤓ Scarica il testo in particelle</a>
         <div class="hint">
           Nessuna libreria · nessun server<br>
-          <a href="./sabbia-magnetica.html" download="sabbia-magnetica.html"
-             style="color:#8fa0bd;text-decoration:underline;text-underline-offset:3px">Oppure scarica la sabbia</a> ·
           <a href="./slime-cannon.html" download="cannone-di-slime.html"
-             style="color:#8fa0bd;text-decoration:underline;text-underline-offset:3px">il cannone</a>
+             style="color:#8fa0bd;text-decoration:underline;text-underline-offset:3px">Oppure scarica il cannone</a>
         </div>
       </article>
 
@@ -193,5 +173,5 @@
          target="_blank" rel="noopener">Iscriviti al canale</a>
     </footer>
   </div>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a4f2075d4e9b0e1f',t:'MTc5Mjc3MjAwMw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
