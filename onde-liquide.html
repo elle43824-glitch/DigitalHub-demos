@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Acqua digitale — DigitalHub</title>
+<meta name="description" content="Tocca lo schermo: una superficie di punti si apre come acqua. HTML + Canvas, zero librerie.">
+<style>
+  :root {
+    --bg: #07070d;
+    --ink: #eef2ff;
+    --muted: #6f7690;
+    --accent: #ff9150;
+    --cyan: #5ee0ff;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+  body { position: fixed; inset: 0; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  .brand {
+    position: fixed; top: max(18px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
+    font: 700 11.5px/1 ui-monospace, Menlo, monospace;
+    letter-spacing: .32em; text-transform: uppercase; color: #59607a;
+    pointer-events: none; user-select: none;
+  }
+
+  .hint {
+    position: fixed; left: 50%; bottom: calc(max(26px, env(safe-area-inset-bottom)) + 62px);
+    transform: translateX(-50%);
+    font: 700 12px/1 ui-monospace, Menlo, monospace;
+    letter-spacing: .2em; text-transform: uppercase; color: #5d6480;
+    pointer-events: none; transition: opacity .5s; white-space: nowrap;
+  }
+  .hint.off { opacity: 0; }
+
+  .chips {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: max(18px, env(safe-area-inset-bottom));
+    display: flex; gap: 8px; flex-wrap: nowrap; justify-content: center;
+    padding: 0 10px; width: 100%; max-width: 100vw;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 10px 15px; border-radius: 999px; text-decoration: none;
+    font: 700 12.5px/1 inherit; white-space: nowrap;
+    border: 1px solid rgba(255, 255, 255, .12);
+    background: rgba(16, 15, 24, .82);
+    color: #ccd3e4; backdrop-filter: blur(10px);
+    transition: background .18s, transform .12s;
+  }
+  .chip:active { transform: scale(.97); }
+  .chip:hover { background: rgba(30, 28, 44, .95); }
+  .chip.accent { background: var(--accent); border-color: transparent; color: #2a1206; }
+  .chip.accent:hover { background: var(--accent); filter: brightness(1.06); }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: #ccd3e4; flex: none; }
+
+  /* schermi stretti: i chip restano su una riga */
+  @media (max-width: 430px) {
+    .chips { gap: 6px; padding: 0 8px; }
+    .chip { padding: 9px 12px; font-size: 11.5px; gap: 6px; }
+    .hint { font-size: 11px; letter-spacing: .16em; }
+  }
+  @media (max-width: 360px) {
+    .chip { padding: 8px 10px; font-size: 10.5px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="brand">digitalhub</div>
+<div class="hint" id="hint">tocca e trascina</div>
+<div class="chips">
+  <a class="chip" id="gh" href="#"><span class="dot"></span> codice su GitHub</a>
+  <a class="chip accent" href="https://www.youtube.com/channel/UCkTXX_ZO05a-GV9CJS8P3Lg" target="_blank" rel="noopener">ISCRIVITI · DigitalHub</a>
+</div>
+
+<script>
+/* ============================================================
+   ACQUA DIGITALE
+   Una griglia di punti e un campo d'onda: tutte le volte che
+   tocchi lo schermo nasce una "goccia". L'onda si propaga di
+   punto in punto, attraversa tutto lo schermo e poi esce dai
+   bordi: la superficie torna perfettamente piatta.
+   Zero librerie: solo HTML, CSS e Canvas.
+   ============================================================ */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const hint = document.getElementById('hint');
+const gcv = document.createElement('canvas');   /* alone disegnato a parte */
+const gctx = gcv.getContext('2d');
+const GSCALE = 2;
+
+let W = 0, H = 0, DPR = 1;
+let cols = 0, rows = 0, spacing = 24;
+let rx, ry;              /* posizioni di riposo (px) */
+let h, hv;               /* altezza dell'acqua e sua velocità (in celle) */
+let ox, oy;              /* scostamento dei punti (px) */
+let tmp;                 /* appoggio per la media 3x3 */
+let band;                /* fascia di colore di ogni punto */
+let energy = 0;          /* "quanta acqua si muove": se è ~0 la superficie è piatta */
+let asleep = true;
+let dampMap;             /* smorzamento: cresce vicino ai bordi */
+let n = 0;
+
+const SPEED   = 25.2;    /* velocità dell'onda: celle al secondo */
+const DAMP    = 0.90;    /* smorzamento dell'acqua (al secondo) */
+const SIGMA   = 1.75;    /* larghezza della goccia, in celle */
+const TAP_A   = 130;     /* forza del tocco */
+const DRAG_A  = 45 * 30; /* forza al secondo mentre il dito striscia */
+const GRAD    = 0.72;    /* px di spostamento per unità di pendenza */
+const EDGE_D  = 6;       /* celle di "spugna" ai bordi */
+const EDGE_G  = 26;
+
+function setup() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cv.width = Math.round(W * DPR);
+  cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  gcv.width = Math.ceil(W / GSCALE);
+  gcv.height = Math.ceil(H / GSCALE);
+  gctx.setTransform(1 / GSCALE, 0, 0, 1 / GSCALE, 0, 0);
+
+  spacing = Math.max(16, Math.min(W, H) / 30);
+  cols = Math.ceil(W / spacing) + 1;
+  rows = Math.ceil(H / spacing) + 1;
+  n = cols * rows;
+
+  rx = new Float32Array(n); ry = new Float32Array(n);
+  h = new Float32Array(n);  hv = new Float32Array(n);
+  ox = new Float32Array(n); oy = new Float32Array(n);
+  tmp = new Float32Array(n);
+  band = new Uint8Array(n);
+  dampMap = new Float32Array(n);
+
+  const offX = (W - (cols - 1) * spacing) / 2;
+  const offY = (H - (rows - 1) * spacing) / 2;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const k = j * cols + i;
+      rx[k] = offX + i * spacing;
+      ry[k] = offY + j * spacing;
+      /* spugna: l'onda che arriva al bordo viene assorbita */
+      const de = Math.min(i, cols - 1 - i, j, rows - 1 - j);
+      const f = Math.max(0, (EDGE_D - de) / EDGE_D);
+      dampMap[k] = DAMP * (1 + EDGE_G * f * f);
+    }
+  }
+}
+
+/* una goccia: aggiunge velocità all'acqua intorno a un punto */
+function drop(cx, cy, amp) {
+  asleep = false;
+  const sc = SIGMA * spacing;
+  const r = Math.ceil(sc * 3);
+  const i0 = Math.max(0, Math.round(cx / spacing) - Math.ceil(r / spacing));
+  const i1 = Math.min(cols - 1, Math.round(cx / spacing) + Math.ceil(r / spacing));
+  const j0 = Math.max(0, Math.round(cy / spacing) - Math.ceil(r / spacing));
+  const j1 = Math.min(rows - 1, Math.round(cy / spacing) + Math.ceil(r / spacing));
+  const offX = (W - (cols - 1) * spacing) / 2;
+  const offY = (H - (rows - 1) * spacing) / 2;
+  for (let j = j0; j <= j1; j++) {
+    const dy = offY + j * spacing - cy;
+    for (let i = i0; i <= i1; i++) {
+      const dx = offX + i * spacing - cx;
+      const g = Math.exp(-(dx * dx + dy * dy) / (2 * sc * sc));
+      hv[j * cols + i] += amp * g;
+    }
+  }
+}
+
+/* ---------- il dito ---------- */
+const ptr = { x: -9999, y: -9999, on: false, px: 0, py: 0 };
+
+function movePointer(x, y) {
+  ptr.px = ptr.x; ptr.py = ptr.y;
+  ptr.x = x; ptr.y = y; ptr.on = true;
+  hint.classList.add('off');
+}
+
+cv.addEventListener('pointermove', e => movePointer(e.clientX, e.clientY), { passive: true });
+cv.addEventListener('pointerdown', e => {
+  movePointer(e.clientX, e.clientY);
+  drop(e.clientX, e.clientY, TAP_A);
+}, { passive: true });
+cv.addEventListener('pointerup', () => { ptr.on = false; });
+cv.addEventListener('pointerleave', () => { ptr.on = false; });
+cv.addEventListener('pointercancel', () => { ptr.on = false; });
+
+/* ---------- fisica: un passo dell'equazione d'onda ---------- */
+function substep(dt) {
+  const c2 = SPEED * SPEED;
+  let e = 0;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const k = j * cols + i;
+      const kl = j * cols + (i > 0 ? i - 1 : i);
+      const kr = j * cols + (i < cols - 1 ? i + 1 : i);
+      const ku = (j > 0 ? j - 1 : j) * cols + i;
+      const kd = (j < rows - 1 ? j + 1 : j) * cols + i;
+      const lap = h[kl] + h[kr] + h[ku] + h[kd] - 4 * h[k];
+      hv[k] += (c2 * lap - dampMap[k] * hv[k]) * dt;
+    }
+  }
+  for (let k = 0; k < n; k++) { h[k] += hv[k] * dt; const a = hv[k] < 0 ? -hv[k] : hv[k]; if (a > e) e = a; }
+  energy = e;
+}
+
+/* contorno: pendenza dell'acqua -> spostamento dei punti */
+function offsets() {
+  const gxs = GRAD * spacing;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const k = j * cols + i;
+      const kl = j * cols + (i > 0 ? i - 1 : i);
+      const kr = j * cols + (i < cols - 1 ? i + 1 : i);
+      const ku = (j > 0 ? j - 1 : j) * cols + i;
+      const kd = (j < rows - 1 ? j + 1 : j) * cols + i;
+      const cx = (i > 0 && i < cols - 1) ? 0.5 : 1;
+      const cy = (j > 0 && j < rows - 1) ? 0.5 : 1;
+      ox[k] = -((h[kr] - h[kl]) * cx) * gxs;
+      oy[k] = -((h[kd] - h[ku]) * cy) * gxs;
+    }
+  }
+  /* media 3x3: il fronte resta continuo, senza puntini sparsi */
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const k = j * cols + i;
+      const iL = i > 0 ? i - 1 : i, iR = i < cols - 1 ? i + 1 : i;
+      const jU = j > 0 ? j - 1 : j, jD = j < rows - 1 ? j + 1 : j;
+      tmp[k] = (
+        ox[jU * cols + iL] + 2 * ox[jU * cols + i] + ox[jU * cols + iR] +
+        2 * ox[j * cols + iL] + 4 * ox[k] + 2 * ox[j * cols + iR] +
+        ox[jD * cols + iL] + 2 * ox[jD * cols + i] + ox[jD * cols + iR]
+      ) / 16;
+    }
+  }
+  ox.set(tmp);
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const k = j * cols + i;
+      const iL = i > 0 ? i - 1 : i, iR = i < cols - 1 ? i + 1 : i;
+      const jU = j > 0 ? j - 1 : j, jD = j < rows - 1 ? j + 1 : j;
+      tmp[k] = (
+        oy[jU * cols + iL] + 2 * oy[jU * cols + i] + oy[jU * cols + iR] +
+        2 * oy[j * cols + iL] + 4 * oy[k] + 2 * oy[j * cols + iR] +
+        oy[jD * cols + iL] + 2 * oy[jD * cols + i] + oy[jD * cols + iR]
+      ) / 16;
+    }
+  }
+  oy.set(tmp);
+
+  const lim = spacing * 0.62;
+  for (let k = 0; k < n; k++) {
+    ox[k] = Math.max(-lim, Math.min(lim, ox[k]));
+    oy[k] = Math.max(-lim, Math.min(lim, oy[k]));
+  }
+}
+
+/* ---------- disegno ---------- */
+const BANDS = 14;        /* quante fasce di colore: ogni fascia è un solo "fill" */
+const GLOW_BANDS = 5;
+
+function draw() {
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#07070d';
+  ctx.fillRect(0, 0, W, H);
+
+  gctx.setTransform(1, 0, 0, 1, 0, 0);
+  gctx.clearRect(0, 0, gcv.width, gcv.height);
+  gctx.setTransform(1 / GSCALE, 0, 0, 1 / GSCALE, 0, 0);
+
+  const base = spacing * 0.085;
+  const norm = spacing * 0.42;
+
+  /* 1) calcolo una volta sola intensità e fascia di ogni punto */
+  for (let k = 0; k < n; k++) {
+    const mag = Math.hypot(ox[k], oy[k]);
+    const t = mag / norm;
+    const m = Math.pow(t < 1 ? t : 1, 1.30);
+    let b = (m * BANDS) | 0;
+    if (b >= BANDS) b = BANDS - 1;
+    band[k] = b;
+  }
+
+  /* 2) alone: pochi cerchi grandi, raggruppati (è sfocato, non serve precisione) */
+  for (let gb = 0; gb < GLOW_BANDS; gb++) {
+    const m = (gb + 0.5) / GLOW_BANDS;
+    if (m < 0.30) continue;
+    const r = Math.round(m < 0.5 ? 38 + 56 * (m / 0.5) : (m < 0.85 ? 94 + 111 * ((m - 0.5) / 0.35) : 205 + 50 * ((m - 0.85) / 0.15)));
+    const gg = Math.round(m < 0.5 ? 50 + 174 * (m / 0.5) : (m < 0.85 ? 224 + 22 * ((m - 0.5) / 0.35) : 246 - 106 * ((m - 0.85) / 0.15)));
+    const b = Math.round(m < 0.5 ? 88 + 167 * (m / 0.5) : (m < 0.85 ? 255 : 255 - 185 * ((m - 0.85) / 0.15)));
+    const a = 0.13 + 0.87 * m;
+    const rad = base * (1 + 1.9 * m);
+    const lo = (gb / GLOW_BANDS) * BANDS, hi = ((gb + 1) / GLOW_BANDS) * BANDS;
+    gctx.beginPath();
+    for (let k = 0; k < n; k++) {
+      if (band[k] < lo || band[k] >= hi) continue;
+      const px = rx[k] + ox[k], py = ry[k] + oy[k];
+      gctx.moveTo(px + rad * 4.6, py);
+      gctx.arc(px, py, rad * 4.6, 0, 6.2832);
+      gctx.moveTo(px + rad * 2.6, py);
+      gctx.arc(px, py, rad * 2.6, 0, 6.2832);
+    }
+    gctx.fillStyle = `rgba(${r},${gg},${b},${a * 0.085})`;
+    gctx.fill();
+  }
+
+  /* 3) i punti veri: un solo fill per ogni fascia */
+  for (let b = 0; b < BANDS; b++) {
+    const m = (b + 0.5) / BANDS;
+    let r, gg, bl;
+    if (m < 0.5) { const t = m / 0.5; r = 38 + 56 * t; gg = 50 + 174 * t; bl = 88 + 167 * t; }
+    else if (m < 0.85) { const t = (m - 0.5) / 0.35; r = 94 + 111 * t; gg = 224 + 22 * t; bl = 255; }
+    else { const t = (m - 0.85) / 0.15; r = 205 + 50 * t; gg = 246 - 106 * t; bl = 255 - 185 * t; }
+    const a = 0.13 + 0.87 * m;
+    const rad = base * (1 + 1.9 * m);
+    ctx.beginPath();
+    let any = false;
+    for (let k = 0; k < n; k++) {
+      if (band[k] !== b) continue;
+      const px = rx[k] + ox[k], py = ry[k] + oy[k];
+      ctx.moveTo(px + rad, py);
+      ctx.arc(px, py, rad, 0, 6.2832);
+      any = true;
+    }
+    if (any) {
+      ctx.fillStyle = `rgba(${r | 0},${gg | 0},${bl | 0},${a})`;
+      ctx.fill();
+    }
+  }
+
+  /* 4) il bianco dei picchi più alti */
+  ctx.beginPath();
+  let peak = false;
+  const rp = base * 0.6;
+  for (let k = 0; k < n; k++) {
+    if (band[k] !== BANDS - 1) continue;
+    const px = rx[k] + ox[k], py = ry[k] + oy[k];
+    ctx.moveTo(px + rp, py);
+    ctx.arc(px, py, rp, 0, 6.2832);
+    peak = true;
+  }
+  if (peak) { ctx.fillStyle = 'rgba(255,245,235,0.42)'; ctx.fill(); }
+
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.drawImage(gcv, 0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/* ---------- loop ---------- */
+const H_STEP = 1 / 120;
+let acc = 0, last = performance.now(), dcTick = 0;
+
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+
+  /* il dito muove l'acqua mentre striscia */
+  if (ptr.on) {
+    const dpx = Math.hypot(ptr.x - ptr.px, ptr.y - ptr.py);
+    const cellsPerSec = (dpx / Math.max(dt, 1e-3)) / spacing;
+    const s01 = Math.min(1, cellsPerSec / 30);
+    if (dpx > 0.5) drop(ptr.x, ptr.y, (0.55 + 0.45 * s01) * DRAG_A * dt);
+    ptr.px = ptr.x; ptr.py = ptr.y;
+  }
+
+  acc += dt;
+  let guard = 0;
+  while (acc >= H_STEP && guard++ < 8) { substep(H_STEP); acc -= H_STEP; }
+
+  /* ai bordi si accumula una piccola costante: la tolgo ogni tanto,
+     così l'acqua torna davvero piatta e la pagina può andare a riposo */
+  if (++dcTick > 12) {
+    dcTick = 0;
+    let sum = 0;
+    for (let k = 0; k < n; k++) sum += h[k];
+    const mean = sum / n;
+    if (mean) for (let k = 0; k < n; k++) h[k] -= mean;
+  }
+
+  /* se l'acqua è piatta non c'è niente da ridisegnare: la pagina resta ferma
+     e il telefono non scalda / non consuma batteria */
+  if (asleep && !ptr.on) { requestAnimationFrame(frame); return; }
+  if (energy < 0.05) { asleep = true; requestAnimationFrame(frame); return; }
+  asleep = false;
+
+  offsets();
+  draw();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- la prima onda, così la pagina non è mai ferma ---------- */
+function introWave() {
+  const t0 = performance.now();
+  (function tick(now) {
+    const t = (now - t0) / 1000;
+    if (t > 3.2) { ptr.on = false; return; }
+    const x = W * (0.5 + 0.30 * Math.sin(t * 1.9));
+    const y = H * (0.48 + 0.12 * Math.cos(t * 2.4));
+    movePointer(x, y);
+    requestAnimationFrame(tick);
+  })(t0);
+}
+
+window.addEventListener('resize', () => { setup(); });
+window.addEventListener('orientationchange', () => setTimeout(setup, 260));
+if (window.visualViewport) {
+  let lastH = 0;
+  window.visualViewport.addEventListener('resize', () => {
+    const hh = Math.round(window.visualViewport.height);
+    if (Math.abs(hh - lastH) > 90) { lastH = hh; setup(); }   /* barra che sparisce/compare */
+  });
+}
+document.addEventListener('gesturestart', e => e.preventDefault());  /* niente zoom con due dita */
+document.addEventListener('dblclick', e => e.preventDefault());
+
+/* link GitHub: su GitHub Pages si ricava da solo */
+(function linkRepo() {
+  const a = document.getElementById('gh');
+  const fixed = document.body.dataset.repo;
+  const host = location.hostname;
+  let href = fixed || '';
+  if (!href && host.endsWith('.github.io')) {
+    const user = host.split('.')[0];
+    const seg = location.pathname.split('/').filter(Boolean)[0];
+    href = seg ? `https://github.com/${user}/${seg}` : `https://github.com/${user}`;
+  }
+  a.href = href || 'https://github.com/';
+  a.setAttribute('target', '_blank');
+})();
+
+setup();
+requestAnimationFrame(frame);
+setTimeout(introWave, 450);
+</script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a4f7d227ef94f7c6',t:'MTc5MjgzMjczOA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
